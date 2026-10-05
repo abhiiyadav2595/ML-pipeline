@@ -51,3 +51,5 @@ grafana-data/
 .ruff_cache/
 .vercel/
 
+
+.vercel
