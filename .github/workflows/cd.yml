@@ -1,0 +1,101 @@
+name: CD - Container Build, Security Scan & Kubernetes Deployment
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/ml-serving-api
+
+jobs:
+  build-and-scan:
+    name: Build Docker Image & Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Build and Export Image for Vulnerability Scan
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test-scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test-scan
+          format: "table"
+          exit-code: "0" # Non-blocking in demo, set to 1 for strict production blocking
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH"
+
+      - name: Push Container Image to Registry
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  deploy-kubernetes:
+    name: Deploy to Kubernetes Cluster
+    runs-on: ubuntu-latest
+    needs: build-and-scan
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install kubectl & Kustomize
+        uses: azure/setup-kubectl@v3
+        with:
+          version: "v1.29.0"
+
+      - name: Dry-Run Kustomize Validation
+        run: |
+          kubectl kustomize k8s/
+
+      - name: Set up Test Kubernetes (Kind) Cluster
+        uses: helm/kind-action@v1.9.0
+        with:
+          cluster_name: mlops-eval-cluster
+
+      - name: Apply Kubernetes Manifests
+        run: |
+          kubectl apply -k k8s/
+
+      - name: Verify Deployment Rollout
+        run: |
+          kubectl rollout status deployment/ml-serving-deployment -n ml-serving --timeout=90s
+          kubectl get pods -n ml-serving -o wide
+          kubectl get svc -n ml-serving

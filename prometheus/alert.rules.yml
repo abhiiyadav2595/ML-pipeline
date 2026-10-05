@@ -1,0 +1,57 @@
+groups:
+  - name: ml_model_alerts
+    rules:
+      # 1. Dataset Drift Alert
+      - alert: ModelDatasetDriftDetected
+        expr: model_dataset_drift_detected == 1
+        for: 15s
+        labels:
+          severity: critical
+          category: ml_monitoring
+        annotations:
+          summary: "Significant Data Drift detected in ML Model serving"
+          description: "Over 33% of input features currently exhibit statistically significant divergence from training baseline distributions."
+
+      # 2. Prediction Distribution Drift Alert
+      - alert: ModelPredictionDriftDetected
+        expr: model_prediction_drift_detected == 1
+        for: 20s
+        labels:
+          severity: warning
+          category: ml_monitoring
+        annotations:
+          summary: "Prediction Probability Drift detected"
+          description: "The distribution of output model probability predictions has drifted significantly from the baseline."
+
+      # 3. High Prediction Latency Alert
+      - alert: HighModelPredictionLatency
+        expr: histogram_quantile(0.95, sum(rate(model_prediction_latency_seconds_bucket[1m])) by (le)) > 0.20
+        for: 30s
+        labels:
+          severity: warning
+          category: sla
+        annotations:
+          summary: "High P95 prediction latency (>200ms)"
+          description: "Model inference P95 latency is currently {{ $value }}s, exceeding SLA thresholds."
+
+      # 4. High Error Rate Alert
+      - alert: HighInferenceErrorRate
+        expr: sum(rate(model_prediction_requests_total{status="error"}[1m])) / sum(rate(model_prediction_requests_total[1m])) > 0.05
+        for: 30s
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "Inference Error Rate > 5%"
+          description: "Model API error rate has exceeded 5% over the last minute."
+
+      # 5. Service Down Alert
+      - alert: MLModelAPIDown
+        expr: up{job="ml-model-api"} == 0
+        for: 15s
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "ML Model Serving API instance is unreachable"
+          description: "Prometheus failed to scrape endpoint {{ $labels.instance }}."

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ml-serving-config
+  namespace: ml-serving
+  labels:
+    app.kubernetes.io/name: ml-serving-api
+data:
+  ARTIFACTS_DIR: "/app/artifacts"
+  PYTHONUNBUFFERED: "1"
+  LOG_LEVEL: "info"
+  PORT: "8000"
+  DRIFT_WINDOW_SIZE: "1000"
+  KS_STAT_THRESHOLD: "0.12"
+  PSI_THRESHOLD: "0.20"

@@ -1,0 +1,17 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.git/
+.github/
+.vscode/
+.idea/
+prometheus-data/
+grafana-data/
+tests/

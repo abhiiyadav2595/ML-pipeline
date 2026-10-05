@@ -1,0 +1,107 @@
+name: CI - Lint, Test & Model Validation Gate
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  lint-and-format:
+    name: Code Quality & Linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Linting Tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff
+
+      - name: Run Ruff Lint Checks
+        run: |
+          ruff check src/ tests/ data/
+
+  tests:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-format
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Train Baseline Artifacts for Testing
+        run: |
+          python -m src.model.train
+
+      - name: Execute Pytest Suite with Coverage
+        run: |
+          pytest tests/ -v --cov=src --cov-report=xml --cov-report=term-missing
+
+      - name: Upload Test Coverage Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  model-validation-gate:
+    name: Automated Model Quality Gate
+    runs-on: ubuntu-latest
+    needs: tests
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install -r requirements.txt
+
+      - name: Evaluate Model Performance Gate
+        run: |
+          python -c "
+          import json, os, sys
+          from src.model.train import run_training_pipeline
+          
+          metadata = run_training_pipeline()
+          test_roc_auc = metadata['test_metrics']['roc_auc']
+          test_f1 = metadata['test_metrics']['f1_score']
+          
+          print(f'Candidate Model ROC-AUC: {test_roc_auc}, F1: {test_f1}')
+          
+          ROC_AUC_THRESHOLD = 0.75
+          F1_THRESHOLD = 0.60
+          
+          if test_roc_auc < ROC_AUC_THRESHOLD:
+              print(f'FAILED: ROC-AUC {test_roc_auc} < threshold {ROC_AUC_THRESHOLD}')
+              sys.exit(1)
+              
+          if test_f1 < F1_THRESHOLD:
+              print(f'FAILED: F1-Score {test_f1} < threshold {F1_THRESHOLD}')
+              sys.exit(1)
+              
+          print('Model Validation Gate: PASSED! Safe for containerization.')
+          "
